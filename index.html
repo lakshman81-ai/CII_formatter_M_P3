@@ -20,7 +20,7 @@
         <p>Select your <b>.ACCDB</b> database or minimal <b>.CSV</b> file to generate the CAESAR II <b>.CII</b> neutral file.</p>
         <p>Missing advanced properties will be automatically calculated via standard code using <code>-1.0101</code> injection.</p>
 
-        <form action="/upload" method="post" enctype="multipart/form-data">
+        <form action="https://your-api-endpoint.example.com/upload" method="post" enctype="multipart/form-data">
             <input type="file" name="file" accept=".accdb,.csv" required>
             <div class="actions">
                 <input type="submit" value="Convert to .CII">
