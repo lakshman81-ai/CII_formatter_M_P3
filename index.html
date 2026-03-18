@@ -17,6 +17,7 @@
     <script src="benchmark_data.js"></script>
     <script src="format_funcs.js"></script>
     <script src="generate_final.js"></script>
+    <script src="dist/bundle.js"></script>
 </head>
 <body>
     <div class="card">
@@ -61,8 +62,55 @@
 
             if (file) {
                 if (file.name.toLowerCase().endsWith('.accdb')) {
-                    msg.textContent = "ACCDB conversion requires the backend API server. This static page cannot process MS Access databases.";
-                    msg.style.color = "#dc3545";
+                    msg.textContent = "Processing ACCDB...";
+                    msg.style.color = "#007bff";
+
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {
+                        try {
+                            const buffer = e.target.result;
+                            const db = window.parseACCDB(buffer);
+                            // Ensure parsing was successful and INPUT_BASIC_ELEMENT_DATA exists
+                            let tableData = [];
+                            try {
+                                tableData = db.parseTable('INPUT_BASIC_ELEMENT_DATA');
+                            } catch (e) {
+                                throw new Error("Table INPUT_BASIC_ELEMENT_DATA not found in ACCDB.");
+                            }
+
+                            // Map ACCDB rows to the format expected by formatRows
+                            // Note: We'll do a simple mapping, assuming columns match
+                            let formattedRows = [];
+                            for (let row of tableData) {
+                                let formattedRow = {};
+                                for (let key in row) {
+                                    formattedRow[key] = row[key];
+                                }
+                                formattedRows.push(formattedRow);
+                            }
+
+                            const finalCiiText = generateFinal(formattedRows, window.BENCHMARK_BLOCKS);
+
+                            // Trigger download
+                            const blob = new Blob([finalCiiText], { type: 'text/plain' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'final.cii';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(url);
+
+                            msg.textContent = "Conversion successful! Downloading final.cii...";
+                            msg.style.color = "#28a745";
+                        } catch (err) {
+                            msg.textContent = "Error processing ACCDB: " + err.message;
+                            msg.style.color = "#dc3545";
+                            console.error(err);
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
                 } else if (file.name.toLowerCase().endsWith('.csv')) {
                     msg.textContent = "Processing CSV...";
                     msg.style.color = "#007bff";
