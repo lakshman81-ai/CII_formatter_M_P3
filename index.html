@@ -69,13 +69,34 @@
                     reader.onload = async function(e) {
                         try {
                             const buffer = e.target.result;
-                            const db = window.parseACCDB(buffer);
+                            console.log("ACCDB buffer loaded. Byte length:", buffer.byteLength);
+
+                            let db;
+                            try {
+                                db = window.parseACCDB(buffer);
+                                console.log("ACCDB initialized successfully.");
+                            } catch (e) {
+                                console.error("Failed to initialize ACCDB parser:", e);
+                                throw new Error("Database initialization failed: " + e.message);
+                            }
+
+                            // Log available tables to debug schema issues
+                            try {
+                                const tables = db.getTables();
+                                console.log("Tables found in ACCDB:", tables);
+                            } catch (e) {
+                                console.error("Failed to list tables:", e);
+                            }
+
                             // Ensure parsing was successful and INPUT_BASIC_ELEMENT_DATA exists
                             let tableData = [];
                             try {
+                                console.log("Attempting to parse table: INPUT_BASIC_ELEMENT_DATA");
                                 tableData = db.parseTable('INPUT_BASIC_ELEMENT_DATA');
+                                console.log("Table parsed successfully. Row count:", tableData.length);
                             } catch (e) {
-                                throw new Error("Table INPUT_BASIC_ELEMENT_DATA not found in ACCDB.");
+                                console.error("Failed to parse table INPUT_BASIC_ELEMENT_DATA:", e);
+                                throw new Error("Table parsing failed: " + e.message + "\nStack: " + e.stack);
                             }
 
                             // Map ACCDB rows to the format expected by formatRows
