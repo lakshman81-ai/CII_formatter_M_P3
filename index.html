@@ -14,6 +14,9 @@
         .actions { margin-top: 1rem; display: flex; align-items: center; }
         #message { margin-top: 1rem; color: #dc3545; font-weight: bold; }
     </style>
+    <script src="benchmark_data.js"></script>
+    <script src="format_funcs.js"></script>
+    <script src="generate_final.js"></script>
 </head>
 <body>
     <div class="card">
@@ -32,18 +35,64 @@
     </div>
 
     <script>
+        function parseCSV(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+            if (lines.length < 2) return [];
+
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const row = lines[i].split(',').map(c => c.trim());
+                const obj = {};
+                for (let j = 0; j < headers.length; j++) {
+                    obj[headers[j]] = row[j] !== undefined ? row[j] : "";
+                }
+                data.push(obj);
+            }
+            return data;
+        }
+
         document.getElementById('uploadForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const fileInput = document.getElementById('fileInput');
             const file = fileInput.files[0];
+            const msg = document.getElementById('message');
 
             if (file) {
-                if (file.name.toLowerCase().endsWith('.csv')) {
-                    document.getElementById('message').textContent = "Serverless CSV conversion is a work in progress on this static deployment. Please run the Python app locally for full support.";
-                    document.getElementById('message').style.color = "#ffc107";
-                } else if (file.name.toLowerCase().endsWith('.accdb')) {
-                    document.getElementById('message').textContent = "ACCDB conversion requires the backend API server. This static page cannot process MS Access databases.";
-                    document.getElementById('message').style.color = "#dc3545";
+                if (file.name.toLowerCase().endsWith('.accdb')) {
+                    msg.textContent = "ACCDB conversion requires the backend API server. This static page cannot process MS Access databases.";
+                    msg.style.color = "#dc3545";
+                } else if (file.name.toLowerCase().endsWith('.csv')) {
+                    msg.textContent = "Processing CSV...";
+                    msg.style.color = "#007bff";
+
+                    const reader = new FileReader();
+                    reader.onload = function(evt) {
+                        try {
+                            const csvText = evt.target.result;
+                            const rows = parseCSV(csvText);
+
+                            const finalCiiContent = generateFinal(rows, BENCHMARK_BLOCKS);
+
+                            const blob = new Blob([finalCiiContent], { type: 'text/plain' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.style.display = 'none';
+                            a.href = url;
+                            a.download = 'final.cii';
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+
+                            msg.textContent = "Conversion successful! Downloading final.cii...";
+                            msg.style.color = "#28a745";
+                        } catch (err) {
+                            msg.textContent = "Error processing CSV: " + err.message;
+                            msg.style.color = "#dc3545";
+                        }
+                    };
+                    reader.readAsText(file);
                 }
             }
         });
