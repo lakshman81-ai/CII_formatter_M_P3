@@ -1,1 +1,12 @@
-Flask==3.0.0
+# CAESAR II Python Exporter
+
+This is a Python-based server application that replaces the browser-side ACCDB parser (which fails on newer MS Access databases with "Failed to parse table header"). 
+
+## Usage
+1. Install Python requirements: `pip install -r requirements.txt`
+2. Run the Flask server: `python app.py`
+3. Open `http://127.0.0.1:5000` in your browser.
+4. Upload your `.accdb` or `.csv` file. 
+
+## Global Defaults
+To edit global defaults, modify the `GLOBAL_DEFAULTS` dictionary in `config.py`.
