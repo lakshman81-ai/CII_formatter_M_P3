@@ -1,8 +1,10 @@
- * Serving Flask app 'app'
- * Debug mode: off
-[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
- * Running on all addresses (0.0.0.0)
- * Running on http://127.0.0.1:5000
- * Running on http://192.168.0.2:5000
-[33mPress CTRL+C to quit[0m
-127.0.0.1 - - [18/Mar/2026 00:17:40] "GET / HTTP/1.1" 200 -
+#$ RIGID   
+    186.808      3.00000    
+    3.53024      1.00000    
+       0.000000     0.000000
+    3.33411      1.00000    
+    480.406      1.00000    
+    506.981      1.00000    
+    383.423      1.00000    
+    186.808      3.00000    
+    1245.39      1.00000    
