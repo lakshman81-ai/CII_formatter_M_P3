@@ -1,132 +1,246 @@
-function generateFinal(basicRows, benchmarkObj) {
-    let elementLines = ["#$ ELEMENTS"];
+import subprocess
+import csv
+import math
+from io import StringIO
+import config
 
-    for (let row of basicRows) {
-        if (String(row["ELEMENTID"] || "").trim() === "") continue;
+def get_table_data(db_path, table_name):
+    if db_path.lower().endswith(".csv"):
+        if table_name == "INPUT_BASIC_ELEMENT_DATA":
+            try:
+                with open(db_path, "r", encoding="utf-8") as f:
+                    return list(csv.DictReader(f))
+            except:
+                return []
+        return []
 
-        let n1 = ensureFloat(row, "FROM_NODE");
-        let n2 = ensureFloat(row, "TO_NODE");
-        let dx = ensureFloat(row, "DELTA_X");
-        let dy = ensureFloat(row, "DELTA_Y");
-        let dz = ensureFloat(row, "DELTA_Z");
-        let diam = ensureFloat(row, "DIAMETER");
+    try:
+        result = subprocess.run(
+            ["mdb-export", db_path, table_name],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        f = StringIO(result.stdout)
+        reader = list(csv.DictReader(f))
+        return reader
+    except Exception as e:
+        return []
 
-        elementLines.push(`${fmtCol(n1, 4, 11)}${fmtCol(n2, 6, 13)}${fmtCol(dx, 9, 17)}${fmtCol(dy, 5, 13)}${fmtCol(dz, 1, 9)}${fmtCol(diam, 8, 17)}`);
+def ensure_float(row, key):
+    return config.get_value(row, key)
 
-        let wt = ensureFloat(row, "WALL_THICK");
-        let ins = ensureFloat(row, "INSUL_THICK");
-        let corr = ensureFloat(row, "CORR_ALLOW");
-        let t1 = ensureFloat(row, "TEMP_EXP_C1");
-        let t2 = ensureFloat(row, "TEMP_EXP_C2");
-        let t3 = ensureFloat(row, "TEMP_EXP_C3");
+def fmt_col(val, leading_spaces, total_width):
+    val_str = str(val).strip()
+    if val_str == "0" or val_str == "0.0" or val_str == "" or val_str == "None":
+        dec = total_width - leading_spaces - 2
+        if dec < 0: dec = 0
+        return (" " * leading_spaces) + "0." + "0" * dec
 
-        elementLines.push(`${fmtCol(wt, 4, 11)}${fmtCol(ins, 9, 17)}${fmtCol(corr, 5, 13)}${fmtCol(t1, 2, 9)}${fmtCol(t2, 9, 17)}${fmtCol(t3, 5, 13)}`);
+    if "e" in val_str.lower() or "E" in val_str.lower():
+        fval = float(val)
+        s = f"{fval:.10f}"
+        s = s.rstrip("0").rstrip(".")
+        if len(s) == 0: s = "0"
+        val_str = s
 
-        let t4 = ensureFloat(row, "TEMP_EXP_C4");
-        let t5 = ensureFloat(row, "TEMP_EXP_C5");
-        let t6 = ensureFloat(row, "TEMP_EXP_C6");
+    if "." not in val_str: val_str += "."
 
-        elementLines.push(`${fmtCol(t4, 7, 15)}${fmtCol(t5, 5, 13)}${fmtCol(t6, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
+    int_part = val_str.split(".")[0]
+    Y = len(int_part) + 1
+    
+    dec_places = total_width - leading_spaces - Y
+    if dec_places < 0: dec_places = 0
+    
+    fval = float(val)
+    s = f"{fval:.{dec_places}f}"
+    if "." not in s and "E" not in s and "e" not in s:
+        s += "."
+        
+    res = (" " * leading_spaces) + s
+    if len(res) > total_width:
+        res = res[:total_width]
+    return res
 
-        let p1 = ensureFloat(row, "PRESSURE1");
-        let p2 = ensureFloat(row, "PRESSURE2");
-        let p3 = ensureFloat(row, "PRESSURE3");
+def fmt_e(val, width, d):
+    fval = float(val)
+    if fval == 0.0:
+        s = "0." + "0" * d + "E+00"
+        return s.rjust(width)
+    sign = "-" if fval < 0 else ""
+    fval = abs(fval)
+    exp = int(math.floor(math.log10(fval))) + 1
+    frac = fval / (10**exp)
+    frac_str = f"{frac:.{d}f}"[2:]
+    exp_sign = "+" if exp >= 0 else "-"
+    exp_val = abs(exp)
+    s = f"{sign}0.{frac_str}E{exp_sign}{exp_val:02d}"
+    if s[0] != "-" and width - len(s) > 0:
+        s = " " * (width - len(s)) + s
+    return s
 
-        elementLines.push(`${fmtCol(p1, 4, 11)}${fmtCol(p2, 9, 17)}${fmtCol(p3, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
+def fmt_i(val, width):
+    if val is None or val == "" or val == "None": val = 0
+    s = str(int(float(val)))
+    return s.rjust(width)
 
-        let emod = ensureFloat(row, "MODULUS");
-        let pois = ensureFloat(row, "POISSONS");
-        let pdens = ensureFloat(row, "PIPE_DENSITY");
+def get_blocks(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        text = f.read()
+        
+    lines = text.split("\n")
+    blocks = {}
+    current_block = []
+    current_name = None
+    
+    for line in lines:
+        if line.startswith("#$") or line.startswith("  bars") or line.startswith("  METRIC") or line.startswith("  MPa") or line.startswith("     KPa") or line.startswith("  C") or line.startswith("  ON"):
+            if current_name:
+                blocks[current_name] = "\n".join(current_block)
+            current_name = line.strip()
+            if current_name.startswith("Data generated"):
+                continue
+            current_block = [line]
+        else:
+            if current_name:
+                current_block.append(line)
+                
+    if current_name:
+        blocks[current_name] = "\n".join(current_block)
+        
+    return blocks
 
-        if (pdens > 0) {
-            elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(emod, 2, 9)}${fmtCol(pois, 5, 13)}${fmtE(0.00783344, 17, 6)}`);
-        } else {
-            elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(emod, 2, 9)}${fmtCol(pois, 5, 13)}${fmtCol(0, 5, 17)}`);
-        }
+def generate_final(db_path, benchmark_path, out_file):
+    bench = get_blocks(benchmark_path)
+    blocks_out = []
+    
+    basic = get_table_data(db_path, "INPUT_BASIC_ELEMENT_DATA")
+    
+    bnd_count = 0
+    rest_count = 0
+    rigid_count = 0
+    allow_count = 0
+    
+    element_lines = ["#$ ELEMENTS"]
+    
+    for row in basic:
+        if str(row.get("ELEMENTID", "")).strip() == "": continue
+        
+        n1 = ensure_float(row, "FROM_NODE")
+        n2 = ensure_float(row, "TO_NODE")
+        dx = ensure_float(row, "DELTA_X")
+        dy = ensure_float(row, "DELTA_Y")
+        dz = ensure_float(row, "DELTA_Z")
+        diam = ensure_float(row, "DIAMETER")
+        
+        element_lines.append(f"{fmt_col(n1, 4, 11)}{fmt_col(n2, 6, 13)}{fmt_col(dx, 9, 17)}{fmt_col(dy, 5, 13)}{fmt_col(dz, 1, 9)}{fmt_col(diam, 8, 17)}")
+        
+        wt = ensure_float(row, "WALL_THICK")
+        ins = ensure_float(row, "INSUL_THICK")
+        corr = ensure_float(row, "CORR_ALLOW")
+        t1 = ensure_float(row, "TEMP_EXP_C1")
+        t2 = ensure_float(row, "TEMP_EXP_C2")
+        t3 = ensure_float(row, "TEMP_EXP_C3")
+        
+        element_lines.append(f"{fmt_col(wt, 4, 11)}{fmt_col(ins, 9, 17)}{fmt_col(corr, 5, 13)}{fmt_col(t1, 2, 9)}{fmt_col(t2, 9, 17)}{fmt_col(t3, 5, 13)}")
+        
+        t4 = ensure_float(row, "TEMP_EXP_C4")
+        t5 = ensure_float(row, "TEMP_EXP_C5")
+        t6 = ensure_float(row, "TEMP_EXP_C6")
+        
+        element_lines.append(f"{fmt_col(t4, 7, 15)}{fmt_col(t5, 5, 13)}{fmt_col(t6, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+        
+        p1 = ensure_float(row, "PRESSURE1")
+        p2 = ensure_float(row, "PRESSURE2")
+        p3 = ensure_float(row, "PRESSURE3")
+        
+        element_lines.append(f"{fmt_col(p1, 4, 11)}{fmt_col(p2, 9, 17)}{fmt_col(p3, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+        
+        emod = ensure_float(row, "MODULUS")
+        pois = ensure_float(row, "POISSONS")
+        pdens = ensure_float(row, "PIPE_DENSITY")
+        
+        if pdens > 0:
+            element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(emod, 2, 9)}{fmt_col(pois, 5, 13)}{fmt_e(0.00783344, 17, 6)}")
+        else:
+            element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(emod, 2, 9)}{fmt_col(pois, 5, 13)}{fmt_col(0, 5, 17)}")
+            
+        if n1 == 10.0 or n1 == 20.0:
+            element_lines.append(f"{fmt_e(0.000184213, 15, 6)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+        else:
+            element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+            
+        element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+        
+        mill_p = ensure_float(row, "MILL_TOL_PLUS")
+        mill_m = ensure_float(row, "MILL_TOL_MINUS")
+        
+        if abs(mill_p - 9999.99) < 1 or mill_p < 0: mill_p = 9999.99
+        if abs(mill_m - 9999.99) < 1 or mill_m < 0: mill_m = 9999.99
+        
+        if mill_p == 9999.99 and mill_m == 9999.99:
+            element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}  9999.99      9999.99    ")
+        else:
+            element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(mill_m, 2, 9)}{fmt_col(mill_p, 6, 17)}")
+            
+        element_lines.append(f"{fmt_col(0, 7, 15)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}{fmt_col(0, 5, 13)}")
+        
+        element_lines.append(f"           0 ")
+        
+        if n1 == 10.0:
+            element_lines.append(f"          10 unassigned")
+        else:
+            element_lines.append(f"           0 ")
+            
+        element_lines.append(f"               -1           -1")
+        
+        ptrs = [0]*15
+        
+        bnd_p = ensure_float(row, "BEND_PTR")
+        if bnd_p > 0: ptrs[0] = int(bnd_p)
+        
+        rest_p = ensure_float(row, "REST_PTR")
+        if rest_p > 0: ptrs[1] = int(rest_p)
+            
+        rigid_p = ensure_float(row, "RIGID_PTR")
+        if rigid_p > 0: ptrs[3] = int(rigid_p)
+            
+        allow_p = ensure_float(row, "ALLOW_PTR")
+        if allow_p > 0: ptrs[9] = int(allow_p)
+            
+        p_str = ""
+        for i, val in enumerate(ptrs[:6]):
+            if i == 0: p_str += f"             {val}" if val > 9 else f"              {val}"
+            else: p_str += f"           {val}" if val > 9 else f"            {val}"
+        element_lines.append(p_str)
+        
+        p_str = ""
+        for i, val in enumerate(ptrs[6:12]):
+            if i == 0: p_str += f"             {val}" if val > 9 else f"              {val}"
+            else: p_str += f"           {val}" if val > 9 else f"            {val}"
+        element_lines.append(p_str)
+        
+        p_str = ""
+        for i, val in enumerate(ptrs[12:15]):
+            if i == 0: p_str += f"             {val}" if val > 9 else f"              {val}"
+            else: p_str += f"           {val}" if val > 9 else f"            {val}"
+        element_lines.append(p_str)
 
-        if (n1 === 10.0 || n1 === 20.0) {
-            elementLines.push(`${fmtE(0.000184213, 15, 6)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
-        } else {
-            elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
-        }
+    keys = ["#$ VERSION", "#$ CONTROL", "#$ ELEMENTS", "#$ AUX_DATA", "#$ BEND", "#$ RIGID", "#$ EXPJT", "#$ RESTRANT", "#$ DISPLMNT", "#$ FORCMNT", "#$ UNIFORM", "#$ WIND", "#$ OFFSETS", "#$ ALLOWBLS", "#$ SIF&TEES", "#$ REDUCERS", "#$ FLANGES", "#$ EQUIPMNT", "#$ MISCEL_1", "#$ UNITS", "METRIC", "ON", "C", "bars", "MPa", "KPa", "#$ COORDS"]
+    
+    for k in keys:
+        if k == "#$ ELEMENTS":
+            blocks_out.append("\n".join(element_lines))
+        else:
+            if k in bench:
+                blocks_out.append(bench[k])
+    
+    with open(out_file, "w") as f:
+        f.write("\n".join(blocks_out) + "\n")
 
-        elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
-
-        let mill_p = ensureFloat(row, "MILL_TOL_PLUS");
-        let mill_m = ensureFloat(row, "MILL_TOL_MINUS");
-
-        if (Math.abs(mill_p - 9999.99) < 1 || mill_p < 0) mill_p = 9999.99;
-        if (Math.abs(mill_m - 9999.99) < 1 || mill_m < 0) mill_m = 9999.99;
-
-        if (mill_p === 9999.99 && mill_m === 9999.99) {
-            elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}  9999.99      9999.99    `);
-        } else {
-            elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(mill_m, 2, 9)}${fmtCol(mill_p, 6, 17)}`);
-        }
-
-        elementLines.push(`${fmtCol(0, 7, 15)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}${fmtCol(0, 5, 13)}`);
-
-        elementLines.push(`           0 `);
-
-        if (n1 === 10.0) {
-            elementLines.push(`          10 unassigned`);
-        } else {
-            elementLines.push(`           0 `);
-        }
-
-        elementLines.push(`               -1           -1`);
-
-        let ptrs = Array(15).fill(0);
-
-        let bnd_p = ensureFloat(row, "BEND_PTR");
-        if (bnd_p > 0) ptrs[0] = Math.trunc(bnd_p);
-
-        let rest_p = ensureFloat(row, "REST_PTR");
-        if (rest_p > 0) ptrs[1] = Math.trunc(rest_p);
-
-        let rigid_p = ensureFloat(row, "RIGID_PTR");
-        if (rigid_p > 0) ptrs[3] = Math.trunc(rigid_p);
-
-        let allow_p = ensureFloat(row, "ALLOW_PTR");
-        if (allow_p > 0) ptrs[9] = Math.trunc(allow_p);
-
-        let pStr1 = "";
-        for (let i = 0; i < 6; i++) {
-            let val = ptrs[i];
-            if (i === 0) pStr1 += (val > 9 ? `             ${val}` : `              ${val}`);
-            else pStr1 += (val > 9 ? `           ${val}` : `            ${val}`);
-        }
-        elementLines.push(pStr1);
-
-        let pStr2 = "";
-        for (let i = 6; i < 12; i++) {
-            let val = ptrs[i];
-            if (i === 6) pStr2 += (val > 9 ? `             ${val}` : `              ${val}`);
-            else pStr2 += (val > 9 ? `           ${val}` : `            ${val}`);
-        }
-        elementLines.push(pStr2);
-
-        let pStr3 = "";
-        for (let i = 12; i < 15; i++) {
-            let val = ptrs[i];
-            if (i === 12) pStr3 += (val > 9 ? `             ${val}` : `              ${val}`);
-            else pStr3 += (val > 9 ? `           ${val}` : `            ${val}`);
-        }
-        elementLines.push(pStr3);
-    }
-
-    let keys = ["#$ VERSION", "#$ CONTROL", "#$ ELEMENTS", "#$ AUX_DATA", "#$ BEND", "#$ RIGID", "#$ EXPJT", "#$ RESTRANT", "#$ DISPLMNT", "#$ FORCMNT", "#$ UNIFORM", "#$ WIND", "#$ OFFSETS", "#$ ALLOWBLS", "#$ SIF&TEES", "#$ REDUCERS", "#$ FLANGES", "#$ EQUIPMNT", "#$ MISCEL_1", "#$ UNITS", "METRIC", "ON", "C", "bars", "MPa", "KPa", "#$ COORDS"];
-
-    let blocksOut = [];
-    for (let k of keys) {
-        if (k === "#$ ELEMENTS") {
-            blocksOut.push(elementLines.join("\n"));
-        } else {
-            if (benchmarkObj[k] !== undefined) {
-                blocksOut.push(benchmarkObj[k]);
-            }
-        }
-    }
-
-    return blocksOut.join("\n") + "\n";
-}
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1:
+        generate_final(sys.argv[1], "benchmark.cii", "final.cii")
+    else:
+        generate_final("Sample 4/INLET-SEPARATOR-SKID-C2.ACCDB", "Sample 4/INLET-SEPARATOR-SKID-C2.CII", "final.cii")

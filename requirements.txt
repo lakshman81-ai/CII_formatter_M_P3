@@ -1,12 +1,6 @@
-# CAESAR II Python Exporter
+import pydantic
 
-This is a Python-based server application that replaces the browser-side ACCDB parser (which fails on newer MS Access databases with "Failed to parse table header"). 
-
-## Usage
-1. Install Python requirements: `pip install -r requirements.txt`
-2. Run the Flask server: `python app.py`
-3. Open `http://127.0.0.1:5000` in your browser.
-4. Upload your `.accdb` or `.csv` file. 
-
-## Global Defaults
-To edit global defaults, modify the `GLOBAL_DEFAULTS` dictionary in `config.py`.
+class OptimizationSettings(pydantic.BaseModel):
+    max_iterations: int = 100
+    learning_rate: float = 0.1
+    target_diff_bytes: int = 0

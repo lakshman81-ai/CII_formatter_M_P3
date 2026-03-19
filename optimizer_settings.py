@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CAESAR II .ACCDB / .CSV to .CII Exporter</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 2rem; max-width: 600px; margin: 0 auto; background: #f5f5f5; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-top: 0; }
+        input[type="file"] { margin-bottom: 1rem; width: 100%; }
+        button, input[type="submit"] { background: #007bff; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; margin-right: 1rem; font-size: 14px;}
+        button:hover, input[type="submit"]:hover { background: #0056b3; }
+        a.btn { background: #28a745; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px;}
+        a.btn:hover { background: #218838; }
+        .actions { margin-top: 1rem; display: flex; align-items: center; }
+        #message { margin-top: 1rem; color: #dc3545; font-weight: bold; }
+    </style>
+    <script src="benchmark_data.js"></script>
+    <script src="format_funcs.js"></script>
+    <script src="generate_final.js"></script>
+    <script src="dist/bundle.js"></script>
+</head>
+<body>
+    <div class="card">
+        <h1>Upload MS Access DB or CSV</h1>
+        <p>Select your <b>.ACCDB</b> database or minimal <b>.CSV</b> file to generate the CAESAR II <b>.CII</b> neutral file.</p>
+        <p>Missing advanced properties will be automatically calculated via standard code using <code>-1.0101</code> injection.</p>
+
+        <form id="uploadForm">
+            <input type="file" id="fileInput" name="file" accept=".accdb,.csv" required>
+            <div class="actions">
+                <button type="submit">Convert to .CII</button>
+                <a href="template.csv" class="btn" download>Download Minimal CSV Template</a>
+
+            </div>
+            <div id="message"></div>
+            <pre id="logScreen" style="margin-top: 1rem; background: #222; color: #0f0; padding: 1rem; border-radius: 4px; display: none; overflow-x: auto; font-size: 12px;"></pre>
+        </form>
+
+    </div>
+
+    <script>
+        function parseCSV(text) {
+            const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+            if (lines.length < 2) return [];
+
+            const headers = lines[0].split(',').map(h => h.trim());
+            const data = [];
+
+            for (let i = 1; i < lines.length; i++) {
+                const row = lines[i].split(',').map(c => c.trim());
+                const obj = {};
+                for (let j = 0; j < headers.length; j++) {
+                    obj[headers[j]] = row[j] !== undefined ? row[j] : "";
+                }
+                data.push(obj);
+            }
+            return data;
+        }
+
+        
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const logScreen = document.getElementById('logScreen');
+            if (logScreen) {
+                logScreen.style.display = 'none';
+                logScreen.textContent = '';
+            }
+
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            const msg = document.getElementById('message');
+
+            if (file) {
+                if (file.name.toLowerCase().endsWith('.accdb')) {
+                    msg.textContent = "Processing ACCDB...";
+                    msg.style.color = "#007bff";
+
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {
+                        try {
+                            const buffer = e.target.result;
+                            console.log("ACCDB buffer loaded. Byte length:", buffer.byteLength);
+
+                            let db;
+                            try {
+                                db = window.parseACCDB(buffer);
+                                console.log("ACCDB initialized successfully.");
+                            } catch (e) {
+                                console.error("Failed to initialize ACCDB parser:", e);
+                                const logScreen = document.getElementById('logScreen');
+                                logScreen.style.display = 'block';
+                                logScreen.textContent = "FATAL ERROR PARSING .ACCDB:\n" + e.stack + "\n\nThe browser-side mdb-tools library failed to parse the Access database header (likely due to newer Access 2016+ formats).\n\nPLEASE USE THE MINIMAL CSV WORKFLOW INSTEAD:\n1. Download the Minimal CSV Template.\n2. Fill in the FROM_NODE, TO_NODE, and DELTA geometry.\n3. Upload the CSV to auto-calculate defaults.";
+                                msg.textContent = "Error processing ACCDB. See log below.";
+                                return;
+                            }
+
+                            // Log available tables to debug schema issues
+                            try {
+                                const tables = db.getTables();
+                                console.log("Tables found in ACCDB:", tables);
+                            } catch (e) {
+                                console.error("Failed to list tables:", e);
+                            }
+
+                            // Ensure parsing was successful and INPUT_BASIC_ELEMENT_DATA exists
+                            let tableData = [];
+                            try {
+                                console.log("Attempting to parse table: INPUT_BASIC_ELEMENT_DATA");
+                                tableData = db.parseTable('INPUT_BASIC_ELEMENT_DATA');
+                                console.log("Table parsed successfully. Row count:", tableData.length);
+                            } catch (e) {
+                                console.error("Failed to parse table INPUT_BASIC_ELEMENT_DATA:", e);
+                                throw new Error("Table parsing failed: " + e.message + "\nStack: " + e.stack);
+                            }
+
+                            // Map ACCDB rows to the format expected by formatRows
+                            // Note: We'll do a simple mapping, assuming columns match
+                            let formattedRows = [];
+                            for (let row of tableData) {
+                                let formattedRow = {};
+                                for (let key in row) {
+                                    formattedRow[key] = row[key];
+                                }
+                                formattedRows.push(formattedRow);
+                            }
+
+                            const finalCiiText = generateFinal(formattedRows, window.BENCHMARK_BLOCKS);
+
+                            // Trigger download
+                            const blob = new Blob([finalCiiText], { type: 'text/plain' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'final.cii';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(url);
+
+                            msg.textContent = "Conversion successful! Downloading final.cii...";
+                            msg.style.color = "#28a745";
+                        } catch (err) {
+                            msg.textContent = "Error processing ACCDB: " + err.message;
+                            msg.style.color = "#dc3545";
+                            console.error(err);
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
+                } else if (file.name.toLowerCase().endsWith('.csv')) {
+                    msg.textContent = "Processing CSV...";
+                    msg.style.color = "#007bff";
+
+                    const reader = new FileReader();
+                    reader.onload = function(evt) {
+                        try {
+                            const csvText = evt.target.result;
+                            const rows = parseCSV(csvText);
+
+                            const finalCiiContent = generateFinal(rows, BENCHMARK_BLOCKS);
+
+                            const blob = new Blob([finalCiiContent], { type: 'text/plain' });
+                            const url = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.style.display = 'none';
+                            a.href = url;
+                            a.download = 'final.cii';
+                            document.body.appendChild(a);
+                            a.click();
+                            window.URL.revokeObjectURL(url);
+
+                            msg.textContent = "Conversion successful! Downloading final.cii...";
+                            msg.style.color = "#28a745";
+                        } catch (err) {
+                            msg.textContent = "Error processing CSV: " + err.message;
+                            msg.style.color = "#dc3545";
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
